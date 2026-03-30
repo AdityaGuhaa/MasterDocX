@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+.env
+
+# Models / heavy files
+*.onnx
+*.pt
+*.bin
+
+# Mac
+.DS_Store
