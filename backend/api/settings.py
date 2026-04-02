@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # Model settings
     embedding_model: str = "all-MiniLM-L6-v2"
     ollama_base_url: str = "http://localhost:11434"
-    default_ollama_model: str = "mistral"
+    default_ollama_model: str = "llama3.1:8b"
 
     # Processing settings
     chunk_size: int = 1000

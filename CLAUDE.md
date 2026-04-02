@@ -35,6 +35,7 @@ This is an AI-powered document reader application that processes PDF, DOCX, and 
 - **Entry Point**: `frontend/src/main.jsx`
 - **Main Component**: `frontend/src/App.jsx`
 - **Document Upload**: `frontend/src/pages/DocumentUploader.jsx`
+- **Document Viewer**: `frontend/src/pages/DocumentViewer.jsx`
 - **Routing**: Uses react-router-dom for navigation
 
 ## Common Development Tasks
@@ -59,13 +60,46 @@ npm run dev
 
 The frontend will start on http://localhost:5173 by default.
 
+#### Both Servers
+```bash
+./start.sh
+```
+
+This script starts both backend and frontend servers and handles graceful shutdown.
+
 ### Testing
 
 #### Backend Tests
 Currently, there are no formal test files in the backend. Tests would typically be added in a `tests/` directory.
 
+To run backend tests when they exist:
+```bash
+cd backend
+python -m pytest tests/
+```
+
 #### Frontend Tests
 Currently, there are no formal test files in the frontend. Tests would typically be colocated with components using naming conventions like `Component.test.jsx`.
+
+To run frontend tests when they exist:
+```bash
+cd frontend
+npm test
+```
+
+### Linting
+
+#### Backend Linting
+```bash
+cd backend
+python -m flake8 .
+```
+
+#### Frontend Linting
+```bash
+cd frontend
+npm run lint
+```
 
 ### Building for Production
 
@@ -87,7 +121,7 @@ Create a `.env` file in the backend directory to override settings from `backend
 
 Key settings include:
 - `OLLAMA_BASE_URL` - URL for Ollama service
-- `DEFAULT_OLLA_MODEL` - Model name for Ollama
+- `DEFAULT_OLLA_MODEL` - Model name for Ollama (currently set to llama3.1:8b)
 - `EMBEDDING_MODEL` - Model for sentence transformers
 - `CHROMA_DB_DIR` - Directory for ChromaDB persistence
 
@@ -143,7 +177,7 @@ Base URL: `/api/v1`
 ### Ollama Connection Issues
 - Ensure Ollama service is running locally
 - Verify `OLLAMA_BASE_URL` setting matches Ollama service URL
-- Check that the specified model is pulled in Ollama
+- Check that the llama3.1:8b model is pulled in Ollama (`ollama pull llama3.1:8b`)
 
 ### PDF Processing Issues
 - Scanned PDFs require OCR processing
