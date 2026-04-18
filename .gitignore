@@ -1,12 +1,30 @@
-# Python
-__pycache__/
+
+**pycache**/
 *.pyc
+*.pyo
+*.pyd
+*.so
+
+venv/
+.venv/
+env/
+
 .env
 
-# Models / heavy files
 *.onnx
 *.pt
+*.pth
 *.bin
+*.ckpt
 
-# Mac
+*.log
+*.tmp
+
 .DS_Store
+
+.vscode/
+.idea/
+
+build/
+dist/
+*.egg-info/
