@@ -2,8 +2,6 @@
 
 An intelligent document processing application that leverages Retrieval-Augmented Generation (RAG) and Large Language Models (LLMs) to enable advanced querying, summarization, and analysis of PDF, DOCX, and TXT documents.
 
-![Project Banner](https://via.placeholder.com/800x200/4A90E2/FFFFFF?text=AI+Document+Reader)
-
 ## Table of Contents
 
 - [Overview](#overview)
