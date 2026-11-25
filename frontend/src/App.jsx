@@ -20,6 +20,10 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>
+        <footer className="footer">
+          <p>MasterDocX runs entirely on your computer with a local language model. Released under the MIT License.</p>
+          <p className="footer-credit">Made by Aditya Guha &amp; Claude</p>
+        </footer>
       </div>
     </Router>
   );

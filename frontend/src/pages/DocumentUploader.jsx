@@ -4,7 +4,13 @@
 import React, { useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
-import { FaFileUpload, FaCloudUploadAlt } from 'react-icons/fa';
+import { FiUploadCloud, FiFileText, FiX, FiLock, FiAlertCircle, FiCheckCircle } from 'react-icons/fi';
+
+const formatSize = (bytes) => {
+  if (bytes < 1024) return `${bytes} bytes`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
 
 const DocumentUploader = () => {
   const [file, setFile] = useState(null);
@@ -13,18 +19,25 @@ const DocumentUploader = () => {
   const [dragActive, setDragActive] = useState(false);
   const navigate = useNavigate();
 
+  const chooseFile = (picked) => {
+    if (picked) {
+      setFile(picked);
+      setUploadResult(null);
+    }
+  };
+
   const handleFileChange = (e) => {
     if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
+      chooseFile(e.target.files[0]);
     }
   };
 
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
+    if (e.type === 'dragenter' || e.type === 'dragover') {
       setDragActive(true);
-    } else if (e.type === "dragleave") {
+    } else if (e.type === 'dragleave') {
       setDragActive(false);
     }
   };
@@ -34,7 +47,7 @@ const DocumentUploader = () => {
     e.stopPropagation();
     setDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setFile(e.dataTransfer.files[0]);
+      chooseFile(e.dataTransfer.files[0]);
     }
   };
 
@@ -62,35 +75,50 @@ const DocumentUploader = () => {
 
       setUploadResult(response.data);
 
-      // Navigate to viewer after successful upload (or if already processed)
+      // Open the viewer after a successful upload (or if already processed)
       if (response.data.status === 'success' || response.data.status === 'already_processed') {
         setTimeout(() => {
-          navigate(`/viewer/${response.data.doc_id}`);
-        }, 2000);
+          navigate(`/viewer/${encodeURIComponent(response.data.doc_id)}`);
+        }, 1200);
       }
     } catch (error) {
-      setUploadResult({ error: error.response?.data?.detail || 'Upload failed' });
+      setUploadResult({ error: error.response?.data?.detail || 'Upload failed. Is the backend running?' });
     } finally {
       setIsUploading(false);
     }
   };
 
-  return (
-    <div className="upload-container">
-      <h2>Upload Document</h2>
-      <p>Select a PDF, DOCX, or TXT file to upload and process with AI</p>
+  const succeeded = uploadResult && !uploadResult.error;
 
-      <form onSubmit={handleSubmit}>
-        <div
-          className={`upload-area ${dragActive ? 'drag-over' : ''}`}
+  return (
+    <div className="uploader">
+      <section className="hero">
+        <h1 className="rise">
+          Your documents.
+          <br />
+          <span className="gradient">Understood.</span>
+        </h1>
+        <p className="rise rise-1">
+          Ask questions, get summaries, and see the ideas inside any PDF, Word document or text file.
+        </p>
+      </section>
+
+      <form className="upload-panel card rise rise-2" onSubmit={handleSubmit}>
+        <label
+          htmlFor="file-input"
+          className={`dropzone ${dragActive ? 'is-dragging' : ''}`}
           onDragEnter={handleDrag}
           onDragOver={handleDrag}
           onDragLeave={handleDrag}
           onDrop={handleDrop}
         >
-          <FaCloudUploadAlt size={48} style={{ marginBottom: '15px', color: '#94a3b8' }} />
-          <p>Drag & drop your file here</p>
-          <p>or</p>
+          <span className="dropzone-icon">
+            <FiUploadCloud size={26} />
+          </span>
+          <span className="dropzone-title">{dragActive ? 'Drop to add' : 'Drop a document here'}</span>
+          <span className="dropzone-hint">
+            or <span style={{ color: 'var(--accent)' }}>browse your files</span>
+          </span>
           <input
             type="file"
             id="file-input"
@@ -98,47 +126,71 @@ const DocumentUploader = () => {
             onChange={handleFileChange}
             accept=".pdf,.docx,.txt"
           />
-          <label htmlFor="file-input" className="upload-button">
-            Browse Files
-          </label>
-          {file && (
-            <p style={{ marginTop: '15px', fontSize: '14px' }}>
-              Selected: {file.name}
-            </p>
-          )}
+        </label>
+
+        {file && (
+          <div className="file-chip fade">
+            <span className="file-chip-icon">
+              <FiFileText size={20} />
+            </span>
+            <div className="file-chip-body">
+              <div className="file-chip-name">{file.name}</div>
+              <div className="file-chip-meta">{formatSize(file.size)}</div>
+            </div>
+            {!isUploading && !succeeded && (
+              <button
+                type="button"
+                className="file-chip-remove"
+                onClick={() => setFile(null)}
+                aria-label="Remove file"
+              >
+                <FiX size={16} />
+              </button>
+            )}
+          </div>
+        )}
+
+        <div className="upload-actions">
+          <button type="submit" className="btn btn-primary btn-block" disabled={!file || isUploading || succeeded}>
+            {isUploading ? (
+              <>
+                <span className="spinner" /> Reading your document…
+              </>
+            ) : succeeded ? (
+              'Opening…'
+            ) : (
+              'Continue'
+            )}
+          </button>
         </div>
 
-        <button
-          type="submit"
-          className="upload-button"
-          disabled={!file || isUploading}
-          style={{ width: '100%', padding: '12px' }}
-        >
-          {isUploading ? 'Processing...' : 'Upload and Process'}
-        </button>
+        {uploadResult?.error && (
+          <div className="notice notice-error fade">
+            <FiAlertCircle size={18} />
+            <span>{uploadResult.error}</span>
+          </div>
+        )}
+
+        {succeeded && (
+          <div className="notice notice-success fade">
+            <FiCheckCircle size={18} />
+            <span>
+              {uploadResult.status === 'already_processed'
+                ? 'You’ve added this document before. Opening it now.'
+                : `Ready. Split into ${uploadResult.metadata?.chunk_count} section${uploadResult.metadata?.chunk_count === 1 ? '' : 's'} for search.`}
+            </span>
+          </div>
+        )}
       </form>
 
-      {uploadResult && (
-        <div
-          className="upload-result"
-          style={{
-            marginTop: '20px',
-            padding: '15px',
-            borderRadius: '4px',
-            backgroundColor: uploadResult.error ? '#fee2e2' : '#dcfce7',
-            color: uploadResult.error ? '#b91c1c' : '#15803d',
-          }}
-        >
-          <h3>{uploadResult.error ? 'Error' : 'Success'}</h3>
-          <p>{uploadResult.error || uploadResult.message}</p>
-          {uploadResult.metadata && (
-            <div>
-              <p>Document ID: {uploadResult.doc_id}</p>
-              <p>Chunks Processed: {uploadResult.metadata.chunk_count}</p>
-            </div>
-          )}
-        </div>
-      )}
+      <div className="formats rise rise-3">
+        <span className="format-pill">PDF</span>
+        <span className="format-pill">DOCX</span>
+        <span className="format-pill">TXT</span>
+      </div>
+      <p className="privacy-note rise rise-3">
+        <FiLock size={12} /> Processed on this computer. Nothing is uploaded to the cloud.
+      </p>
     </div>
   );
 };

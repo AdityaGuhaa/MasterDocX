@@ -4,9 +4,66 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { FaSearch, FaBrain, FaProjectDiagram, FaVolumeUp } from 'react-icons/fa';
+import {
+  FiInfo,
+  FiMessageCircle,
+  FiAlignLeft,
+  FiZap,
+  FiGitBranch,
+  FiShare2,
+  FiVolume2,
+  FiSquare,
+  FiArrowUp,
+  FiAlertCircle,
+  FiMaximize2,
+} from 'react-icons/fi';
 import { Network } from 'vis-network/standalone';
+import { useTheme } from '../theme';
 import './DocumentViewer.css';
+
+const TABS = [
+  { id: 'info', label: 'Overview', icon: FiInfo },
+  { id: 'query', label: 'Ask', icon: FiMessageCircle },
+  { id: 'summary', label: 'Summary', icon: FiAlignLeft },
+  { id: 'explain', label: 'Explain', icon: FiZap },
+  { id: 'mindmap', label: 'Mindmap', icon: FiGitBranch },
+  { id: 'graph', label: 'Graph', icon: FiShare2 },
+];
+
+const SUGGESTIONS = ['What is this document about?', 'What are the key points?', 'What conclusions does it reach?'];
+
+// Read a design token so the graphs match light and dark mode
+const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+const FONT_FACE = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif';
+const MIN_READABLE_SCALE = 0.75;
+
+// Models don't always follow the {title, children} format: branches can be plain strings,
+// use other keys (name, text, topic...), or be {"Topic": [...]} objects. Normalise them.
+const LABEL_KEYS = ['title', 'label', 'name', 'text', 'topic', 'node'];
+const CHILD_KEYS = ['children', 'subtopics', 'items', 'nodes', 'branches'];
+
+const normalizeNode = (node) => {
+  if (node === null || node === undefined) return { title: 'Untitled', children: [] };
+  if (typeof node !== 'object') return { title: String(node), children: [] };
+  if (Array.isArray(node)) return { title: 'Untitled', children: node };
+
+  const labelKey = LABEL_KEYS.find((k) => typeof node[k] === 'string' && node[k].trim());
+  const childKey = CHILD_KEYS.find((k) => Array.isArray(node[k]));
+  if (labelKey || childKey) {
+    return { title: labelKey ? node[labelKey] : 'Untitled', children: childKey ? node[childKey] : [] };
+  }
+
+  // {"Topic": [...]} or {"Topic": "detail"}
+  const entries = Object.entries(node);
+  if (entries.length === 1) {
+    const [key, value] = entries[0];
+    if (Array.isArray(value)) return { title: key, children: value };
+    if (typeof value === 'string') return { title: `${key}: ${value}`, children: [] };
+    return { title: key, children: [value] };
+  }
+  return { title: 'Untitled', children: entries.map(([key, value]) => ({ [key]: value })) };
+};
 
 // Helper: convert hierarchical mindmap JSON into vis-network nodes/edges
 const mindmapToGraph = (data) => {
@@ -14,30 +71,105 @@ const mindmapToGraph = (data) => {
   const edges = [];
   let idCounter = 1;
 
-  const traverse = (node, parentId) => {
+  const traverse = (rawNode, parentId, depth) => {
+    const node = normalizeNode(rawNode);
     const currentId = idCounter++;
+    const isRoot = parentId === null;
     nodes.push({
       id: currentId,
-      label: node.title || node.label || 'Untitled',
-      level: parentId === null ? 0 : undefined,
-      font: parentId === null ? { size: 18, bold: true } : { size: 14 },
+      label: node.title,
+      level: depth,
+      color: isRoot
+        ? { background: token('--accent'), border: token('--accent'), highlight: { background: token('--accent'), border: token('--accent') } }
+        : { background: token('--surface'), border: token('--hairline'), highlight: { background: token('--surface'), border: token('--accent') } },
+      font: isRoot
+        ? { size: 17, color: '#ffffff', face: FONT_FACE, bold: { color: '#ffffff' } }
+        : { size: 14, color: token('--text'), face: FONT_FACE },
     });
-    if (parentId !== null) {
+    if (!isRoot) {
       edges.push({ from: parentId, to: currentId });
     }
     if (node.children && Array.isArray(node.children)) {
-      node.children.forEach((child) => traverse(child, currentId));
+      node.children.forEach((child) => traverse(child, currentId, depth + 1));
     }
   };
 
-  traverse(data, null);
+  traverse(data, null, 0);
   return { nodes, edges };
+};
+
+// Render the model's light markdown (**bold**, bullet lists, headings) as real formatting
+const renderInline = (text) =>
+  text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.length > 4 && part.startsWith('**') && part.endsWith('**') ? <strong key={i}>{part.slice(2, -2)}</strong> : part
+  );
+
+const RichText = ({ text }) => {
+  const blocks = [];
+  let list = null;
+  text.split('\n').forEach((raw) => {
+    const line = raw.trim();
+    const bullet = line.match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
+    if (bullet) {
+      if (!list) {
+        list = { type: /^\d/.test(line) ? 'ol' : 'ul', items: [] };
+        blocks.push(list);
+      }
+      const indent = raw.length - raw.trimStart().length;
+      list.items.push({ text: bullet[1], nested: indent >= 2 });
+      return;
+    }
+    list = null;
+    if (!line) return;
+    const heading = line.match(/^#{1,6}\s+(.*)$/);
+    blocks.push(heading ? { type: 'h', text: heading[1] } : { type: 'p', text: line });
+  });
+
+  return (
+    <div className="rich-text">
+      {blocks.map((block, i) => {
+        if (block.type === 'p') return <p key={i}>{renderInline(block.text)}</p>;
+        if (block.type === 'h') return <h4 key={i}>{renderInline(block.text)}</h4>;
+        const List = block.type;
+        return (
+          <List key={i}>
+            {block.items.map((item, j) => (
+              <li key={j} className={item.nested ? 'nested' : undefined}>
+                {renderInline(item.text)}
+              </li>
+            ))}
+          </List>
+        );
+      })}
+    </div>
+  );
+};
+
+const Thinking = ({ label, hint }) => (
+  <div className="thinking fade">
+    <div className="thinking-label">
+      <span className="spinner" /> {label}
+    </div>
+    {hint && <p className="thinking-hint">{hint}</p>}
+    <div className="skeleton" style={{ width: '92%' }} />
+    <div className="skeleton" style={{ width: '80%' }} />
+    <div className="skeleton" style={{ width: '64%' }} />
+  </div>
+);
+
+const formatDate = (iso) => {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime())
+    ? iso
+    : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 };
 
 const DocumentViewer = () => {
   const { docId } = useParams();
   const [documentInfo, setDocumentInfo] = useState(null);
   const [query, setQuery] = useState('');
+  const [askedQuestion, setAskedQuestion] = useState('');
   const [answer, setAnswer] = useState('');
   const [summary, setSummary] = useState('');
   const [explanationText, setExplanationText] = useState('');
@@ -45,13 +177,18 @@ const DocumentViewer = () => {
   const [mindmap, setMindmap] = useState(null);
   const [knowledgeGraph, setKnowledgeGraph] = useState(null);
   const [activeTab, setActiveTab] = useState('info');
-  const [isLoading, setIsLoading] = useState(false);
+  const [busy, setBusy] = useState({});
+  const [speaking, setSpeaking] = useState(null);
   const [error, setError] = useState('');
+  const [theme] = useTheme(); // graphs are redrawn in the new colours when the theme changes
 
   const mindmapContainerRef = useRef(null);
   const graphContainerRef = useRef(null);
   const mindmapNetworkRef = useRef(null);
   const graphNetworkRef = useRef(null);
+  const audioRef = useRef(null);
+
+  const setTaskBusy = (task, value) => setBusy((current) => ({ ...current, [task]: value }));
 
   useEffect(() => {
     fetchDocumentInfo();
@@ -62,279 +199,478 @@ const DocumentViewer = () => {
     if (mindmap && mindmapContainerRef.current && activeTab === 'mindmap') {
       const { nodes, edges } = mindmapToGraph(mindmap);
       const options = {
-        layout: { hierarchical: { direction: 'UD', sortMethod: 'directed', levelSeparation: 120, nodeSpacing: 160 } },
-        nodes: { shape: 'box', margin: 10, borderWidth: 2, color: { background: '#e3f2fd', border: '#2196f3', highlight: { background: '#bbdefb', border: '#1976d2' } }, font: { face: 'Segoe UI, sans-serif' } },
-        edges: { color: { color: '#90caf9' }, arrows: { to: { enabled: true, scaleFactor: 0.5 } }, smooth: { type: 'cubicBezier' } },
+        layout: {
+          hierarchical: { direction: 'LR', sortMethod: 'directed', levelSeparation: 250, nodeSpacing: 56, treeSpacing: 80 },
+        },
+        nodes: {
+          shape: 'box',
+          margin: { top: 10, right: 14, bottom: 10, left: 14 },
+          borderWidth: 1,
+          shapeProperties: { borderRadius: 10 },
+          widthConstraint: { maximum: 220 },
+          shadow: { enabled: true, color: 'rgba(0,0,0,0.06)', size: 12, x: 0, y: 3 },
+        },
+        edges: {
+          color: { color: token('--text-3'), opacity: 0.45 },
+          width: 1.2,
+          smooth: { type: 'cubicBezier', forceDirection: 'horizontal', roundness: 0.5 },
+          arrows: { to: { enabled: false } },
+        },
         physics: false,
-        interaction: { dragNodes: true, zoomView: true, dragView: true },
+        interaction: { dragNodes: true, zoomView: true, dragView: true, hover: true },
       };
       if (mindmapNetworkRef.current) mindmapNetworkRef.current.destroy();
-      mindmapNetworkRef.current = new Network(mindmapContainerRef.current, { nodes, edges }, options);
+      const network = new Network(mindmapContainerRef.current, { nodes, edges }, options);
+      // Big maps shrink to unreadable text when fitted; open on the root at a readable size instead
+      network.once('afterDrawing', () => {
+        if (network.getScale() < MIN_READABLE_SCALE) {
+          const root = network.getPosition(1);
+          const width = mindmapContainerRef.current?.clientWidth || 800;
+          network.moveTo({
+            position: { x: root.x + width / (2 * MIN_READABLE_SCALE) - 140, y: root.y },
+            scale: MIN_READABLE_SCALE,
+          });
+        }
+      });
+      mindmapNetworkRef.current = network;
     }
-  }, [mindmap, activeTab]);
+  }, [mindmap, activeTab, busy.mindmap, theme]);
 
   // Render knowledge graph when data arrives
   useEffect(() => {
     if (knowledgeGraph && graphContainerRef.current && activeTab === 'graph') {
+      const accent = token('--accent');
+      const surface = token('--surface');
       const nodes = (knowledgeGraph.nodes || []).map((n) => ({
         id: n.id,
         label: n.label,
         shape: 'dot',
-        size: 20,
-        color: { background: '#c8e6c9', border: '#43a047', highlight: { background: '#a5d6a7', border: '#2e7d32' } },
-        font: { size: 14, face: 'Segoe UI, sans-serif' },
+        size: 11,
+        borderWidth: 3,
+        color: {
+          background: accent,
+          border: token('--accent-soft'),
+          highlight: { background: accent, border: accent },
+          hover: { background: accent, border: accent },
+        },
+        font: { size: 14, face: FONT_FACE, color: token('--text'), strokeWidth: 4, strokeColor: surface },
       }));
       const edges = (knowledgeGraph.edges || []).map((e) => ({
         from: e.source,
         to: e.target,
         label: e.label || '',
-        color: { color: '#81c784' },
-        arrows: { to: { enabled: true, scaleFactor: 0.5 } },
-        font: { size: 11, align: 'middle', color: '#555' },
-        smooth: { type: 'curvedCW', roundness: 0.2 },
+        color: { color: token('--text-3'), opacity: 0.4, highlight: accent, hover: accent },
+        width: 1.2,
+        arrows: { to: { enabled: true, scaleFactor: 0.4 } },
+        font: { size: 11, face: FONT_FACE, align: 'middle', color: token('--text-2'), strokeWidth: 4, strokeColor: surface },
+        smooth: { type: 'continuous' },
       }));
       const options = {
-        physics: { solver: 'forceAtlas2Based', forceAtlas2Based: { gravitationalConstant: -50, springLength: 150 } },
+        physics: {
+          solver: 'forceAtlas2Based',
+          forceAtlas2Based: { gravitationalConstant: -60, springLength: 160, avoidOverlap: 0.4 },
+          stabilization: { iterations: 250 },
+        },
         interaction: { hover: true, tooltipDelay: 200 },
       };
       if (graphNetworkRef.current) graphNetworkRef.current.destroy();
-      graphNetworkRef.current = new Network(graphContainerRef.current, { nodes, edges }, options);
+      const network = new Network(graphContainerRef.current, { nodes, edges }, options);
+      network.once('stabilizationIterationsDone', () => network.fit({ animation: { duration: 600, easingFunction: 'easeInOutQuad' } }));
+      graphNetworkRef.current = network;
     }
-  }, [knowledgeGraph, activeTab]);
+  }, [knowledgeGraph, activeTab, busy.graph, theme]);
 
-  // Cleanup networks on unmount
+  // Cleanup networks and audio on unmount
   useEffect(() => {
     return () => {
       if (mindmapNetworkRef.current) mindmapNetworkRef.current.destroy();
       if (graphNetworkRef.current) graphNetworkRef.current.destroy();
+      if (audioRef.current) audioRef.current.pause();
     };
   }, []);
 
   const fetchDocumentInfo = async () => {
     try {
-      const response = await axios.get(`/api/v1/document/${docId}`);
+      const response = await axios.get(`/api/v1/document/${encodeURIComponent(docId)}`);
       setDocumentInfo(response.data);
     } catch (err) {
-      setError('Failed to fetch document info: ' + (err.response?.data?.detail || err.message));
+      setError('Couldn’t open this document: ' + (err.response?.data?.detail || err.message));
     }
   };
 
-  const handleQuery = async (e) => {
-    e.preventDefault();
-    if (!query.trim()) return;
-    setIsLoading(true);
+  const handleQuery = async (e, preset) => {
+    if (e) e.preventDefault();
+    const question = (preset ?? query).trim();
+    if (!question) return;
+    setQuery(question);
+    setTaskBusy('query', true);
     setError('');
     setAnswer('');
+    setAskedQuestion(question);
     try {
-      const response = await axios.post('/api/v1/query', { doc_id: docId, query });
+      const response = await axios.post('/api/v1/query', { doc_id: docId, query: question });
       setAnswer(response.data.response);
     } catch (err) {
-      setError('Failed to query document: ' + (err.response?.data?.detail || err.message));
+      setError('Couldn’t answer that: ' + (err.response?.data?.detail || err.message));
     } finally {
-      setIsLoading(false);
+      setTaskBusy('query', false);
     }
   };
 
   const handleSummarize = async () => {
-    setIsLoading(true);
+    setTaskBusy('summary', true);
     setError('');
     setSummary('');
     try {
       const response = await axios.post('/api/v1/summarize', { doc_id: docId });
       setSummary(response.data.summary);
     } catch (err) {
-      setError('Failed to generate summary: ' + (err.response?.data?.detail || err.message));
+      setError('Couldn’t write a summary: ' + (err.response?.data?.detail || err.message));
     } finally {
-      setIsLoading(false);
+      setTaskBusy('summary', false);
     }
   };
 
   const handleExplain = async (e) => {
     e.preventDefault();
     if (!explanationText.trim()) return;
-    setIsLoading(true);
+    setTaskBusy('explain', true);
     setError('');
     setExplanationResult('');
     try {
       const response = await axios.post('/api/v1/explain', { doc_id: docId, text: explanationText });
       setExplanationResult(response.data.explanation);
     } catch (err) {
-      setError('Failed to explain text: ' + (err.response?.data?.detail || err.message));
+      setError('Couldn’t explain that: ' + (err.response?.data?.detail || err.message));
     } finally {
-      setIsLoading(false);
+      setTaskBusy('explain', false);
     }
   };
 
   const handleMindmap = async () => {
-    setIsLoading(true);
+    setTaskBusy('mindmap', true);
     setError('');
     setMindmap(null);
     try {
-      const response = await axios.get(`/api/v1/mindmap/${docId}`);
+      const response = await axios.get(`/api/v1/mindmap/${encodeURIComponent(docId)}`);
       setMindmap(response.data.mindmap);
     } catch (err) {
-      setError('Failed to generate mindmap: ' + (err.response?.data?.detail || err.message));
+      setError('Couldn’t build the mindmap: ' + (err.response?.data?.detail || err.message));
     } finally {
-      setIsLoading(false);
+      setTaskBusy('mindmap', false);
     }
   };
 
   const handleKnowledgeGraph = async () => {
-    setIsLoading(true);
+    setTaskBusy('graph', true);
     setError('');
     setKnowledgeGraph(null);
     try {
-      const response = await axios.get(`/api/v1/knowledge-graph/${docId}`);
+      const response = await axios.get(`/api/v1/knowledge-graph/${encodeURIComponent(docId)}`);
       setKnowledgeGraph(response.data.knowledge_graph);
     } catch (err) {
-      setError('Failed to generate knowledge graph: ' + (err.response?.data?.detail || err.message));
+      setError('Couldn’t build the knowledge graph: ' + (err.response?.data?.detail || err.message));
     } finally {
-      setIsLoading(false);
+      setTaskBusy('graph', false);
     }
   };
 
-  const handleTextToSpeech = async (text) => {
+  const handleTextToSpeech = async (text, key) => {
+    if (audioRef.current) audioRef.current.pause();
+    if (speaking === key) {
+      setSpeaking(null);
+      return;
+    }
+    setSpeaking(key);
     try {
       const response = await axios.post('/api/v1/tts', { doc_id: docId, text }, { responseType: 'blob' });
       const audioUrl = URL.createObjectURL(new Blob([response.data], { type: 'audio/wav' }));
       const audio = new Audio(audioUrl);
-      audio.play();
+      audioRef.current = audio;
+      audio.onended = () => setSpeaking((current) => (current === key ? null : current));
+      await audio.play();
     } catch (err) {
-      setError('Failed to generate speech: ' + (err.response?.data?.detail || err.message));
+      setSpeaking(null);
+      setError('Couldn’t play audio: ' + (err.response?.data?.detail || err.message));
     }
   };
 
+  const openTab = (id) => {
+    setActiveTab(id);
+    if (id === 'summary' && !summary && !busy.summary) handleSummarize();
+    if (id === 'mindmap' && !mindmap && !busy.mindmap) handleMindmap();
+    if (id === 'graph' && !knowledgeGraph && !busy.graph) handleKnowledgeGraph();
+  };
+
+  const ListenButton = ({ text, id }) => (
+    <button type="button" className="btn btn-ghost" onClick={() => handleTextToSpeech(text, id)}>
+      {speaking === id ? <FiSquare size={14} /> : <FiVolume2 size={16} />}
+      {speaking === id ? 'Stop' : 'Listen'}
+    </button>
+  );
+
+  const FitButton = ({ networkRef }) => (
+    <button
+      type="button"
+      className="btn btn-ghost"
+      onClick={() => networkRef.current && networkRef.current.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } })}
+    >
+      <FiMaximize2 size={14} /> Fit to view
+    </button>
+  );
+
   if (!documentInfo) {
     return (
-      <div className="document-viewer">
-        <h2>Loading Document...</h2>
-        {error && <div className="error">{error}</div>}
+      <div className="viewer">
+        <header className="viewer-header">
+          <div className="skeleton" style={{ width: 90, height: 12 }} />
+          <div className="skeleton" style={{ width: '55%', height: 40, marginTop: 14 }} />
+        </header>
+        {error && (
+          <div className="notice notice-error fade">
+            <FiAlertCircle size={18} />
+            <span>{error}</span>
+          </div>
+        )}
       </div>
     );
   }
 
+  const fileName = documentInfo.file_name || docId;
+  const dot = fileName.lastIndexOf('.');
+  const baseName = dot > 0 ? fileName.slice(0, dot) : fileName;
+  const extension = dot > 0 ? fileName.slice(dot + 1).toUpperCase() : '';
+  const sections = documentInfo.chunk_count;
+  const previewSummary = summary || documentInfo.summary;
+
   return (
-    <div className="document-viewer">
-      <h2>Document: {documentInfo.file_name || docId}</h2>
-      {error && <div className="error">{error}</div>}
+    <div className="viewer">
+      <header className="viewer-header rise">
+        <p className="eyebrow">Document</p>
+        <h1 className="viewer-title">
+          {baseName}
+          {extension && <span className="ext-badge">{extension}</span>}
+        </h1>
+        <p className="viewer-meta">
+          {sections} section{sections === 1 ? '' : 's'} · {Number(documentInfo.character_count).toLocaleString()} characters · Added{' '}
+          {formatDate(documentInfo.processed_at)}
+        </p>
+      </header>
 
-      <div className="document-tabs">
-        <button className={activeTab === 'info' ? 'active' : ''} onClick={() => setActiveTab('info')}>Info</button>
-        <button className={activeTab === 'query' ? 'active' : ''} onClick={() => setActiveTab('query')}><FaSearch /> Query</button>
-        <button className={activeTab === 'summary' ? 'active' : ''} onClick={() => { setActiveTab('summary'); if (!summary) handleSummarize(); }}><FaBrain /> Summary</button>
-        <button className={activeTab === 'explain' ? 'active' : ''} onClick={() => setActiveTab('explain')}>Explain</button>
-        <button className={activeTab === 'mindmap' ? 'active' : ''} onClick={() => { setActiveTab('mindmap'); if (!mindmap) handleMindmap(); }}><FaProjectDiagram /> Mindmap</button>
-        <button className={activeTab === 'graph' ? 'active' : ''} onClick={() => { setActiveTab('graph'); if (!knowledgeGraph) handleKnowledgeGraph(); }}>Knowledge Graph</button>
-      </div>
+      <nav className="segmented rise rise-1" role="tablist" aria-label="Document tools">
+        {TABS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={activeTab === id}
+            className={`segment ${activeTab === id ? 'is-active' : ''}`}
+            onClick={() => openTab(id)}
+          >
+            <Icon size={15} />
+            <span>{label}</span>
+            {busy[id] && activeTab !== id && <span className="segment-dot" title="Working…" />}
+          </button>
+        ))}
+      </nav>
 
-      <div className="tab-content">
+      {error && (
+        <div className="notice notice-error fade viewer-error">
+          <FiAlertCircle size={18} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <section className="panel fade" key={activeTab}>
         {activeTab === 'info' && (
-          <div className="info-tab">
-            <h3>Document Information</h3>
-            <div className="info-grid">
-              <div><strong>ID:</strong> {documentInfo.doc_id}</div>
-              <div><strong>File Name:</strong> {documentInfo.file_name}</div>
-              <div><strong>Processed At:</strong> {documentInfo.processed_at}</div>
-              <div><strong>Chunk Count:</strong> {documentInfo.chunk_count}</div>
-              <div><strong>Character Count:</strong> {documentInfo.character_count}</div>
-              <div><strong>Hash:</strong> {documentInfo.hash}</div>
-            </div>
-            {documentInfo.summary && (
-              <div className="summary-preview">
-                <h4>Summary Preview:</h4>
-                <p>{documentInfo.summary.substring(0, 200)}...</p>
-                <button onClick={() => { setActiveTab('summary'); if (!summary) handleSummarize(); }}>View Full Summary</button>
+          <>
+            <div className="stats">
+              <div className="stat card">
+                <span className="stat-value">{sections}</span>
+                <span className="stat-label">Searchable section{sections === 1 ? '' : 's'}</span>
               </div>
-            )}
-          </div>
+              <div className="stat card">
+                <span className="stat-value">{Number(documentInfo.character_count).toLocaleString()}</span>
+                <span className="stat-label">Characters</span>
+              </div>
+              <div className="stat card">
+                <span className="stat-value stat-value-sm">{formatDate(documentInfo.processed_at)}</span>
+                <span className="stat-label">Added</span>
+              </div>
+            </div>
+
+            <div className="card content-card">
+              <p className="eyebrow">Summary</p>
+              {previewSummary ? (
+                <>
+                  <p className="preview-text">{previewSummary.replace(/\*\*/g, '').slice(0, 280)}…</p>
+                  <button className="btn btn-ghost card-action" onClick={() => openTab('summary')}>
+                    Read the full summary
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="preview-text muted">No summary yet. It takes a few seconds to write one.</p>
+                  <button className="btn btn-secondary btn-sm card-action" onClick={() => openTab('summary')}>
+                    Summarize this document
+                  </button>
+                </>
+              )}
+            </div>
+
+            <p className="fingerprint">
+              Fingerprint <code>{documentInfo.hash?.slice(0, 16)}</code>
+            </p>
+          </>
         )}
 
         {activeTab === 'query' && (
-          <div className="query-tab">
-            <h3>Ask Questions About This Document</h3>
-            <form onSubmit={handleQuery}>
-              <div className="input-group">
-                <input type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Enter your question about the document..." disabled={isLoading} />
-                <button type="submit" disabled={isLoading || !query.trim()}>{isLoading ? 'Searching...' : 'Ask'}</button>
-              </div>
+          <>
+            <form className="ask-bar card" onSubmit={handleQuery}>
+              <FiMessageCircle size={20} className="ask-icon" />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Ask anything about this document"
+                disabled={busy.query}
+                autoFocus
+              />
+              <button type="submit" className="ask-submit" disabled={busy.query || !query.trim()} aria-label="Ask">
+                {busy.query ? <span className="spinner" /> : <FiArrowUp size={18} strokeWidth={2.6} />}
+              </button>
             </form>
-            {answer && (
-              <div className="answer-result">
-                <h4>Answer:</h4>
-                <div className="answer-content">
-                  {answer}
-                  <button className="tts-button" onClick={() => handleTextToSpeech(answer)} title="Listen to answer"><FaVolumeUp /></button>
-                </div>
+
+            {!answer && !busy.query && (
+              <div className="suggestions">
+                {SUGGESTIONS.map((s) => (
+                  <button key={s} type="button" className="suggestion" onClick={() => handleQuery(null, s)}>
+                    {s}
+                  </button>
+                ))}
               </div>
             )}
-          </div>
+
+            {busy.query && <Thinking label="Looking through your document…" />}
+
+            {answer && !busy.query && (
+              <article className="card content-card fade">
+                <p className="question">{askedQuestion}</p>
+                <RichText text={answer} />
+                <div className="card-actions">
+                  <ListenButton text={answer} id="answer" />
+                </div>
+              </article>
+            )}
+          </>
         )}
 
         {activeTab === 'summary' && (
-          <div className="summary-tab">
-            <h3>Document Summary</h3>
-            {isLoading ? (
-              <div className="loading-indicator">Generating summary...</div>
+          <>
+            {busy.summary ? (
+              <Thinking label="Writing a summary…" />
             ) : summary ? (
-              <div className="summary-content">
-                <p>{summary}</p>
-                <button className="tts-button" onClick={() => handleTextToSpeech(summary)} title="Listen to summary"><FaVolumeUp /> Listen</button>
-              </div>
+              <article className="card content-card reading">
+                <RichText text={summary} />
+                <div className="card-actions">
+                  <ListenButton text={summary} id="summary" />
+                </div>
+              </article>
             ) : (
-              <button onClick={handleSummarize}>Generate Summary</button>
+              <div className="empty">
+                <p className="muted">Get the main points of this document in a few paragraphs.</p>
+                <button className="btn btn-primary" onClick={handleSummarize}>
+                  Summarize
+                </button>
+              </div>
             )}
-          </div>
+          </>
         )}
 
         {activeTab === 'explain' && (
-          <div className="explain-tab">
-            <h3>Explain Text</h3>
-            <form onSubmit={handleExplain}>
-              <textarea value={explanationText} onChange={(e) => setExplanationText(e.target.value)} placeholder="Enter text you want explained..." rows="4" disabled={isLoading} />
-              <button type="submit" disabled={isLoading || !explanationText.trim()}>{isLoading ? 'Explaining...' : 'Explain'}</button>
-            </form>
-            {explanationResult && (
-              <div className="explanation-result">
-                <h4>Explanation:</h4>
-                <div className="explanation-content">
-                  {explanationResult}
-                  <button className="tts-button" onClick={() => handleTextToSpeech(explanationResult)} title="Listen to explanation"><FaVolumeUp /></button>
-                </div>
+          <>
+            <form className="card explain-form" onSubmit={handleExplain}>
+              <textarea
+                value={explanationText}
+                onChange={(e) => setExplanationText(e.target.value)}
+                placeholder="Paste a sentence or passage you’d like explained in plain language"
+                rows="4"
+                disabled={busy.explain}
+              />
+              <div className="explain-footer">
+                <span className="muted small">{explanationText.trim() ? `${explanationText.trim().split(/\s+/).length} words` : ''}</span>
+                <button type="submit" className="btn btn-primary btn-sm" disabled={busy.explain || !explanationText.trim()}>
+                  {busy.explain ? (
+                    <>
+                      <span className="spinner" /> Explaining…
+                    </>
+                  ) : (
+                    'Explain'
+                  )}
+                </button>
               </div>
+            </form>
+
+            {busy.explain && <Thinking label="Putting it in plain language…" />}
+
+            {explanationResult && !busy.explain && (
+              <article className="card content-card fade">
+                <RichText text={explanationResult} />
+                <div className="card-actions">
+                  <ListenButton text={explanationResult} id="explanation" />
+                </div>
+              </article>
             )}
-          </div>
+          </>
         )}
 
         {activeTab === 'mindmap' && (
-          <div className="mindmap-tab">
-            <h3>Document Mindmap</h3>
-            {isLoading ? (
-              <div className="loading-indicator">Generating mindmap...</div>
+          <>
+            {busy.mindmap ? (
+              <Thinking label="Mapping the main ideas…" hint="This usually takes 20–40 seconds." />
             ) : mindmap ? (
-              <div className="mindmap-content">
+              <div className="card canvas-card">
+                <div className="canvas-toolbar">
+                  <span className="muted small">Drag to move · Scroll to zoom</span>
+                  <FitButton networkRef={mindmapNetworkRef} />
+                </div>
                 <div ref={mindmapContainerRef} className="vis-container" />
               </div>
             ) : (
-              <button onClick={handleMindmap}>Generate Mindmap</button>
+              <div className="empty">
+                <p className="muted">See the document’s topics and how they branch out.</p>
+                <button className="btn btn-primary" onClick={handleMindmap}>
+                  Create mindmap
+                </button>
+              </div>
             )}
-          </div>
+          </>
         )}
 
         {activeTab === 'graph' && (
-          <div className="graph-tab">
-            <h3>Knowledge Graph</h3>
-            {isLoading ? (
-              <div className="loading-indicator">Generating knowledge graph...</div>
+          <>
+            {busy.graph ? (
+              <Thinking label="Finding people, places and ideas…" hint="This usually takes 20–40 seconds." />
             ) : knowledgeGraph ? (
-              <div className="graph-content">
+              <div className="card canvas-card">
+                <div className="canvas-toolbar">
+                  <span className="muted small">
+                    {(knowledgeGraph.nodes || []).length} concepts · {(knowledgeGraph.edges || []).length} connections
+                  </span>
+                  <FitButton networkRef={graphNetworkRef} />
+                </div>
                 <div ref={graphContainerRef} className="vis-container" />
               </div>
             ) : (
-              <button onClick={handleKnowledgeGraph}>Generate Knowledge Graph</button>
+              <div className="empty">
+                <p className="muted">See the key concepts in this document and how they connect.</p>
+                <button className="btn btn-primary" onClick={handleKnowledgeGraph}>
+                  Create graph
+                </button>
+              </div>
             )}
-          </div>
+          </>
         )}
-      </div>
+      </section>
     </div>
   );
 };
