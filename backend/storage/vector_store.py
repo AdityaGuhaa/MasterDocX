@@ -1,10 +1,10 @@
 # Copyright (c) 2026 Aditya Guha
 # SPDX-License-Identifier: MIT
 
+import hashlib
 import logging
 import chromadb
 from chromadb.config import Settings
-import numpy as np
 from api.settings import settings
 from pathlib import Path
 import os
@@ -25,10 +25,20 @@ class VectorStore:
             settings=Settings(anonymized_telemetry=False)
         )
 
+    @staticmethod
+    def _collection_name(doc_id: str) -> str:
+        """Map a doc_id (a file name) to a valid Chroma collection name.
+
+        Chroma only allows 3-63 characters from [a-zA-Z0-9._-], so file names
+        with spaces, brackets or long names can't be used directly. A hash of
+        the doc_id is always valid and stays unique per file name.
+        """
+        return "doc_" + hashlib.sha256(doc_id.encode("utf-8")).hexdigest()[:32]
+
     def store_document_chunks(self, doc_id: str, chunks: list, embeddings: list):
         """Store document chunks and their embeddings"""
         # Create or get collection for this document
-        collection_name = f"doc_{doc_id.replace('.', '_').replace(' ', '_')}"
+        collection_name = self._collection_name(doc_id)
 
         # Delete existing collection if it exists
         try:
@@ -51,9 +61,16 @@ class VectorStore:
             documents=chunks
         )
 
+    def has_document(self, doc_id: str) -> bool:
+        """Whether chunks for this document are stored"""
+        try:
+            return self.client.get_collection(self._collection_name(doc_id)).count() > 0
+        except Exception:
+            return False
+
     def retrieve_similar_chunks(self, doc_id: str, query_embedding: list, k: int = 5):
         """Retrieve k most similar chunks to the query"""
-        collection_name = f"doc_{doc_id.replace('.', '_').replace(' ', '_')}"
+        collection_name = self._collection_name(doc_id)
 
         try:
             collection = self.client.get_collection(collection_name)
@@ -61,7 +78,7 @@ class VectorStore:
             # Query the collection
             results = collection.query(
                 query_embeddings=[query_embedding],
-                n_results=k
+                n_results=min(k, collection.count())
             )
 
             # Format results
@@ -81,7 +98,7 @@ class VectorStore:
 
     def get_all_chunks(self, doc_id: str):
         """Retrieve all chunks for a document"""
-        collection_name = f"doc_{doc_id.replace('.', '_').replace(' ', '_')}"
+        collection_name = self._collection_name(doc_id)
 
         try:
             collection = self.client.get_collection(collection_name)
@@ -97,6 +114,9 @@ class VectorStore:
                     "text": results['documents'][i],
                     "metadata": results['metadatas'][i]
                 })
+
+            # Chroma doesn't guarantee order, so restore document order
+            all_chunks.sort(key=lambda chunk: chunk["metadata"].get("chunk_index", 0))
 
             return all_chunks
         except Exception as e:

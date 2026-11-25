@@ -2,15 +2,15 @@
 # SPDX-License-Identifier: MIT
 
 from storage.vector_store import VectorStore
-from embeddings.embedder import get_embedder
+from embeddings.embedder import Embedder, get_embedder
 from api.settings import settings
 
 
 class Retriever:
-    def __init__(self, vector_store: VectorStore):
+    def __init__(self, vector_store: VectorStore, embedder: Embedder = None):
         """Initialize retriever with vector store"""
         self.vector_store = vector_store
-        self.embedder = get_embedder()
+        self.embedder = embedder or get_embedder()
 
     def retrieve(self, query: str, doc_id: str, k: int = None) -> list:
         """Retrieve relevant chunks for a query"""

@@ -3,6 +3,7 @@
 
 import os
 import hashlib
+import logging
 from typing import Dict, Any
 import PyPDF2
 import docx
@@ -16,17 +17,21 @@ from pathlib import Path
 
 from storage.metadata_store import MetadataStore
 from storage.vector_store import VectorStore
-from embeddings.embedder import get_embedder
+from embeddings.embedder import Embedder, get_embedder
 from api.settings import settings
+
+logger = logging.getLogger(__name__)
+
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt"}
 
 
 class DocumentProcessor:
-    def __init__(self, vector_store: VectorStore, metadata_store: MetadataStore):
+    def __init__(self, vector_store: VectorStore, metadata_store: MetadataStore, embedder: Embedder = None):
         self.vector_store = vector_store
         self.metadata_store = metadata_store
-        self.embedder = get_embedder()
+        self.embedder = embedder or get_embedder()
 
-    async def process_document(self, file_path: str, force_reprocess: bool = False) -> Dict[str, Any]:
+    def process_document(self, file_path: str, force_reprocess: bool = False) -> Dict[str, Any]:
         """Process a document through the full pipeline"""
         # Calculate file hash
         doc_hash = self._calculate_file_hash(file_path)
@@ -36,8 +41,9 @@ class DocumentProcessor:
         existing_metadata = self.metadata_store.get_document_metadata(doc_id)
 
         if existing_metadata and not force_reprocess:
-            # Check if file hash matches
-            if existing_metadata.get("hash") == doc_hash:
+            # Skip only if the hash matches and the chunks are actually stored
+            # (they may be missing, e.g. after the vector DB was cleared)
+            if existing_metadata.get("hash") == doc_hash and self.vector_store.has_document(doc_id):
                 return {
                     "doc_id": doc_id,
                     "status": "already_processed",
@@ -113,7 +119,7 @@ class DocumentProcessor:
             with open(file_path, "rb") as file:
                 pdf_reader = PyPDF2.PdfReader(file)
                 for page in pdf_reader.pages:
-                    text += page.extract_text() + "\n"
+                    text += (page.extract_text() or "") + "\n"
 
             # If no text extracted, try OCR
             if not text.strip():
@@ -140,7 +146,10 @@ class DocumentProcessor:
 
             return text
         except Exception as e:
-            return f"OCR failed: {str(e)}"
+            # Return no text (rather than the error message) so the caller
+            # reports "No text could be extracted" instead of indexing the error.
+            logger.warning(f"OCR failed for {file_path}: {str(e)}")
+            return ""
 
     def _extract_docx_text(self, file_path: str) -> str:
         """Extract text from DOCX"""

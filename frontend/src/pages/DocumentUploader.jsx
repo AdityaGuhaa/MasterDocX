@@ -55,10 +55,15 @@ const DocumentUploader = () => {
         },
       });
 
+      if (response.data.status === 'error') {
+        setUploadResult({ error: response.data.message });
+        return;
+      }
+
       setUploadResult(response.data);
 
-      // Navigate to viewer after successful upload
-      if (response.data.status === 'success') {
+      // Navigate to viewer after successful upload (or if already processed)
+      if (response.data.status === 'success' || response.data.status === 'already_processed') {
         setTimeout(() => {
           navigate(`/viewer/${response.data.doc_id}`);
         }, 2000);
