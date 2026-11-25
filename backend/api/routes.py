@@ -29,7 +29,7 @@ llm_interface = LLMInterface()
 tts_engine = TTSEngine()
 
 # Handlers other than /upload are plain `def` on purpose: they make blocking
-# calls (embedding, Ollama, espeak), and FastAPI runs `def` handlers in a
+# calls (embedding, llama.cpp, espeak), and FastAPI runs `def` handlers in a
 # threadpool so one slow request doesn't freeze the whole server.
 
 

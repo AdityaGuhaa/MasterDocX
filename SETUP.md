@@ -8,17 +8,26 @@ Before running the application, ensure you have the following installed:
 
 1. Python 3.8+
 2. Node.js 16+
-3. Ollama (for LLM inference)
+3. llama.cpp (for LLM inference)
 4. espeak (for text-to-speech, optional but recommended)
 
-### Installing Ollama
+### Installing llama.cpp
 
-Visit https://ollama.ai and follow installation instructions for your platform.
-
-Pull a model for use with the application:
+On macOS:
 ```bash
-ollama pull llama3.1:8b
+brew install llama.cpp
 ```
+
+On other platforms, see https://github.com/ggml-org/llama.cpp for prebuilt binaries.
+
+`start.sh` starts `llama-server` for you. On first run it downloads Llama 3.1 8B Instruct
+(Q4_K_M, about 4.9 GB) from Hugging Face. To start it yourself instead:
+```bash
+llama-server -hf bartowski/Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M --port 8080 -c 8192
+```
+
+To use a different model, pass a local file with `-m /path/to/model.gguf`
+(or set `LLAMA_MODEL_PATH` / `LLAMA_HF_MODEL` when using `start.sh`).
 
 ### Installing espeak (for TTS)
 
@@ -107,7 +116,7 @@ You can also test the API directly:
 
 ### Common Issues
 
-1. **Ollama connection errors**: Ensure Ollama is running and the model is pulled
+1. **LLM connection errors**: Ensure `llama-server` is running on port 8080 (check `llama-server.log` when started by `start.sh`) and has finished loading the model
 2. **TTS not working**: Install espeak or check system audio settings
 3. **PDF processing issues**: Ensure poppler-utils and Tesseract are installed (needed for OCR on scanned PDFs)
 4. **CORS errors**: Make sure both backend and frontend are running
@@ -117,8 +126,7 @@ You can also test the API directly:
 Create a `.env` file in the backend directory to override settings:
 
 ```env
-OLLAMA_BASE_URL=http://localhost:11434
-DEFAULT_OLLAMA_MODEL=llama3.1:8b
+LLM_BASE_URL=http://127.0.0.1:8080
 EMBEDDING_MODEL=all-MiniLM-L6-v2
 CHROMA_DB_DIR=./data/chroma_db
 ```

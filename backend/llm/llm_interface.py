@@ -3,38 +3,55 @@
 
 import json
 import re
-import ollama
+import httpx
 from api.settings import settings
 from typing import List, Dict, Any
 
-# llama3.1:8b runs with a small context window by default in Ollama, so cap how
-# much document text goes into whole-document prompts.
+# Cap how much document text goes into whole-document prompts so they fit in
+# the context window llama-server is started with (start.sh uses -c 8192).
 MAX_DOCUMENT_CHARS = 10000
 
 
 class LLMInterface:
     def __init__(self):
-        """Initialize LLM interface"""
-        self.base_url = settings.ollama_base_url
-        self.model = settings.default_ollama_model
-        # Use a client bound to the configured host; the module-level
-        # ollama.generate() ignores OLLAMA_BASE_URL.
-        self.client = ollama.Client(host=self.base_url)
+        """Initialize LLM interface (talks to a llama.cpp llama-server)"""
+        self.base_url = settings.llm_base_url.rstrip("/")
+        headers = {}
+        if settings.llm_api_key:
+            headers["Authorization"] = f"Bearer {settings.llm_api_key}"
+        self.client = httpx.Client(
+            base_url=self.base_url,
+            headers=headers,
+            timeout=settings.llm_timeout,
+        )
 
     def _generate(self, prompt: str, temperature: float, json_output: bool = False) -> str:
-        kwargs = {}
+        """Send a single-turn chat request to llama-server's OpenAI-compatible API.
+
+        The chat endpoint applies the model's own chat template, so instruct
+        models like Llama 3.1 get correctly formatted prompts.
+        """
+        payload = {
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+            "top_p": 0.9,
+        }
         if json_output:
-            kwargs["format"] = "json"
-        response = self.client.generate(
-            model=self.model,
-            prompt=prompt,
-            options={
-                "temperature": temperature,
-                "top_p": 0.9,
-            },
-            **kwargs
-        )
-        return response["response"].strip()
+            # llama-server turns this into a grammar, so the output is valid JSON
+            payload["response_format"] = {"type": "json_object"}
+
+        try:
+            response = self.client.post("/v1/chat/completions", json=payload)
+        except httpx.ConnectError:
+            raise RuntimeError(
+                f"Could not reach llama.cpp server at {self.base_url}. "
+                "Is llama-server running? (see start.sh)"
+            )
+        if response.status_code == 503:
+            raise RuntimeError("llama.cpp server is still loading the model; try again shortly")
+        response.raise_for_status()
+
+        return response.json()["choices"][0]["message"]["content"].strip()
 
     @staticmethod
     def _document_text(chunks: List[Dict[str, Any]]) -> str:

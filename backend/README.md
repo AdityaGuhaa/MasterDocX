@@ -6,19 +6,21 @@ Before installing Python dependencies, ensure you have the following system depe
 
 ### macOS
 ```bash
-brew install tesseract espeak poppler
+brew install tesseract espeak poppler llama.cpp
 ```
 
 ### Ubuntu/Debian
 ```bash
 sudo apt-get install tesseract-ocr espeak poppler-utils
 ```
+For llama.cpp, use a prebuilt release from https://github.com/ggml-org/llama.cpp/releases or build it from source.
 
 ### Windows
 Install the following:
 - Tesseract OCR: https://github.com/UB-Mannheim/tesseract/wiki
 - eSpeak: http://espeak.sourceforge.net/download.html
 - Poppler: https://github.com/oschwartz10612/poppler-windows/releases/
+- llama.cpp: https://github.com/ggml-org/llama.cpp/releases
 
 ## Python Dependencies
 
@@ -31,8 +33,9 @@ pip install -r ../requirements.txt
 
 Create a `.env` file in this directory with the following variables:
 ```env
-OLLAMA_BASE_URL=http://localhost:11434
-DEFAULT_OLLAMA_MODEL=llama3.1:8b
+LLM_BASE_URL=http://127.0.0.1:8080
+LLM_API_KEY=
+LLM_TIMEOUT=600
 EMBEDDING_MODEL=all-MiniLM-L6-v2
 CHROMA_DB_DIR=./data/chroma_db
 DATA_DIR=./data

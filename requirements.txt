@@ -18,13 +18,11 @@ sentence-transformers
 huggingface-hub
 numpy
 
-# LLM Integration
-ollama
-
-# HTTP Client
+# HTTP client (talks to the llama.cpp server)
 httpx
 
 # System dependencies (install separately, not with pip):
+# - llama.cpp for the LLM server (brew install llama.cpp)
 # - Tesseract OCR engine (brew install tesseract)
 # - Poppler utils for pdf2image (brew install poppler)
 # - eSpeak for text-to-speech (brew install espeak)

@@ -20,8 +20,10 @@ class Settings(BaseSettings):
 
     # Model settings
     embedding_model: str = "all-MiniLM-L6-v2"
-    ollama_base_url: str = "http://localhost:11434"
-    default_ollama_model: str = "llama3.1:8b"
+    # llama.cpp server (llama-server) exposing its OpenAI-compatible API
+    llm_base_url: str = "http://127.0.0.1:8080"
+    llm_api_key: str = ""  # only needed if llama-server runs with --api-key
+    llm_timeout: float = 600.0  # seconds; long documents can take a while on CPU
 
     # Processing settings
     chunk_size: int = 1000

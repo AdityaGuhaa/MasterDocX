@@ -96,7 +96,7 @@ Document Pipeline → Embeddings → Vector DB (ChromaDB)
   ↓
 Retriever (Top-K chunks)
   ↓
-LLM (Ollama / Future: Gemini, OpenAI)
+LLM (llama.cpp llama-server / Future: Gemini, OpenAI)
   ↓
 Response
 ```
@@ -122,7 +122,7 @@ Response
 * FastAPI
 * ChromaDB
 * sentence-transformers
-* Ollama (local LLM)
+* llama.cpp (local LLM via llama-server)
 * Tesseract OCR
 * eSpeak (TTS)
 
@@ -195,8 +195,7 @@ npm install
 Create `.env` inside backend:
 
 ```
-OLLAMA_BASE_URL=http://localhost:11434
-DEFAULT_OLLAMA_MODEL=llama3.1:8b
+LLM_BASE_URL=http://127.0.0.1:8080
 CHUNK_SIZE=1000
 TOP_K_CHUNKS=5
 ```
