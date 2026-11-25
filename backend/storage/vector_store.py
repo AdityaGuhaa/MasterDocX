@@ -1,12 +1,15 @@
 # Copyright (c) 2026 Aditya Guha
 # SPDX-License-Identifier: MIT
 
+import logging
 import chromadb
 from chromadb.config import Settings
 import numpy as np
 from api.settings import settings
 from pathlib import Path
 import os
+
+logger = logging.getLogger(__name__)
 
 
 class VectorStore:
@@ -30,7 +33,7 @@ class VectorStore:
         # Delete existing collection if it exists
         try:
             self.client.delete_collection(collection_name)
-        except:
+        except Exception:
             pass  # Collection doesn't exist, that's fine
 
         # Create new collection
@@ -73,7 +76,7 @@ class VectorStore:
 
             return retrieved_chunks
         except Exception as e:
-            print(f"Error retrieving chunks: {str(e)}")
+            logger.warning(f"Error retrieving chunks: {str(e)}")
             return []
 
     def get_all_chunks(self, doc_id: str):
@@ -97,5 +100,5 @@ class VectorStore:
 
             return all_chunks
         except Exception as e:
-            print(f"Error retrieving all chunks: {str(e)}")
+            logger.warning(f"Error retrieving all chunks: {str(e)}")
             return []

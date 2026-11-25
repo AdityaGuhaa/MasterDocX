@@ -37,24 +37,20 @@ Download and install eSpeak from http://espeak.sourceforge.net/
 
 ## Backend Setup
 
-1. Navigate to the backend directory:
-```bash
-cd backend
-```
-
-2. Create a virtual environment (recommended):
+1. Create a virtual environment (recommended):
 ```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-3. Install Python dependencies:
+2. Install Python dependencies (from the repo root):
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Start the backend server:
+3. Start the backend server:
 ```bash
+cd backend
 python main.py
 ```
 

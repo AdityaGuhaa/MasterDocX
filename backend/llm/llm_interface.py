@@ -2,15 +2,18 @@
 # SPDX-License-Identifier: MIT
 
 import json
-import ollama
+import logging
+from ollama import Client
 from api.settings import settings
 from typing import List, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 
 class LLMInterface:
     def __init__(self):
         """Initialize LLM interface"""
-        self.base_url = settings.ollama_base_url
+        self.client = Client(host=settings.ollama_base_url)
         self.model = settings.default_ollama_model
 
     def generate_response(self, query: str, retrieved_chunks: List[Dict[str, Any]]) -> str:
@@ -31,7 +34,7 @@ Answer:"""
 
         # Generate response using Ollama
         try:
-            response = ollama.generate(
+            response = self.client.generate(
                 model=self.model,
                 prompt=prompt,
                 options={
@@ -62,7 +65,7 @@ Content:
 Summary:"""
 
         try:
-            response = ollama.generate(
+            response = self.client.generate(
                 model=self.model,
                 prompt=prompt,
                 options={
@@ -83,7 +86,7 @@ Summary:"""
 Explanation:"""
 
         try:
-            response = ollama.generate(
+            response = self.client.generate(
                 model=self.model,
                 prompt=prompt,
                 options={
@@ -122,7 +125,7 @@ Document content:
 Mindmap JSON:"""
 
         try:
-            response = ollama.generate(
+            response = self.client.generate(
                 model=self.model,
                 prompt=prompt,
                 options={
@@ -135,7 +138,7 @@ Mindmap JSON:"""
             try:
                 mindmap = json.loads(response["response"].strip())
                 return mindmap
-            except:
+            except (json.JSONDecodeError, ValueError, KeyError):
                 # If parsing fails, return a simple structure
                 return {
                     "title": "Document Mindmap",
@@ -150,6 +153,7 @@ Mindmap JSON:"""
                     ]
                 }
         except Exception as e:
+            logger.warning(f"Error generating mindmap: {str(e)}")
             return {
                 "title": "Document Mindmap",
                 "children": [
@@ -189,7 +193,7 @@ Document content:
 Knowledge Graph JSON:"""
 
         try:
-            response = ollama.generate(
+            response = self.client.generate(
                 model=self.model,
                 prompt=prompt,
                 options={
@@ -202,7 +206,7 @@ Knowledge Graph JSON:"""
             try:
                 knowledge_graph = json.loads(response["response"].strip())
                 return knowledge_graph
-            except:
+            except (json.JSONDecodeError, ValueError, KeyError):
                 # If parsing fails, return a simple structure
                 return {
                     "nodes": [
@@ -214,6 +218,7 @@ Knowledge Graph JSON:"""
                     ]
                 }
         except Exception as e:
+            logger.warning(f"Error generating knowledge graph: {str(e)}")
             return {
                 "nodes": [
                     {"id": "1", "label": "Main Entity"},

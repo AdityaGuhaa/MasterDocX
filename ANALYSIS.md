@@ -13,7 +13,7 @@
   - `llm/` – language-model interface (`llm_interface.py`).
   - `ingestion/` – document processing pipeline (`document_processor.py`).
   - `utils/` – (currently empty) place for shared helpers.
-  - `requirements.txt` – Python dependencies.
+- **`requirements.txt`** – Python dependencies (repo root, shared by backend).
 - **`frontend/`** – React front-end built with Vite:
   - `src/` – component hierarchy:
     - `App.jsx` / `App.css` – main UI shell.

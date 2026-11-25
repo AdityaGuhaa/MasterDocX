@@ -6,13 +6,17 @@ import hashlib
 from typing import Dict, Any
 import PyPDF2
 import docx
-from PIL import Image
-import pytesseract
+try:
+    from PIL import Image
+    import pytesseract
+    HAS_OCR = True
+except ImportError:
+    HAS_OCR = False
 from pathlib import Path
 
 from storage.metadata_store import MetadataStore
 from storage.vector_store import VectorStore
-from embeddings.embedder import Embedder
+from embeddings.embedder import get_embedder
 from api.settings import settings
 
 
@@ -20,7 +24,7 @@ class DocumentProcessor:
     def __init__(self, vector_store: VectorStore, metadata_store: MetadataStore):
         self.vector_store = vector_store
         self.metadata_store = metadata_store
-        self.embedder = Embedder()
+        self.embedder = get_embedder()
 
     async def process_document(self, file_path: str, force_reprocess: bool = False) -> Dict[str, Any]:
         """Process a document through the full pipeline"""
@@ -158,8 +162,7 @@ class DocumentProcessor:
             raise ValueError(f"Failed to extract text from TXT: {str(e)}")
 
     def _chunk_text(self, text: str) -> list:
-        """Split text into chunks for embedding"""
-        # Simple chunking - in production, consider semantic chunking
+        """Split text into chunks for embedding with overlap"""
         chunks = []
         words = text.split()
         current_chunk = []
@@ -167,9 +170,20 @@ class DocumentProcessor:
 
         for word in words:
             if current_length + len(word) > settings.chunk_size and current_chunk:
-                chunks.append(" ".join(current_chunk))
-                current_chunk = [word]
-                current_length = len(word)
+                chunk_text = " ".join(current_chunk)
+                chunks.append(chunk_text)
+
+                # Calculate overlap: keep last chunk_overlap chars worth of words
+                overlap_words = []
+                overlap_length = 0
+                for w in reversed(current_chunk):
+                    if overlap_length + len(w) + 1 > settings.chunk_overlap:
+                        break
+                    overlap_words.insert(0, w)
+                    overlap_length += len(w) + 1
+
+                current_chunk = overlap_words + [word]
+                current_length = overlap_length + len(word) + 1
             else:
                 current_chunk.append(word)
                 current_length += len(word) + 1  # +1 for space

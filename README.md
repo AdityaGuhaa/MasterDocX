@@ -172,7 +172,6 @@ cd MasterDocX
 ### 2. Backend Setup
 
 ```
-cd backend
 pip install -r requirements.txt
 ```
 

@@ -2,10 +2,13 @@
 # SPDX-License-Identifier: MIT
 
 import json
+import logging
 import os
 from pathlib import Path
 from api.settings import settings
 from typing import Dict, Any, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class MetadataStore:
@@ -21,7 +24,7 @@ class MetadataStore:
             try:
                 with open(self.metadata_file, "r") as f:
                     return json.load(f)
-            except:
+            except (json.JSONDecodeError, IOError):
                 return {}
         return {}
 
@@ -31,7 +34,7 @@ class MetadataStore:
             with open(self.metadata_file, "w") as f:
                 json.dump(self.metadata, f, indent=2)
         except Exception as e:
-            print(f"Error saving metadata: {str(e)}")
+            logger.warning(f"Error saving metadata: {str(e)}")
 
     def store_document_metadata(self, doc_id: str, metadata: Dict[str, Any]):
         """Store metadata for a document"""

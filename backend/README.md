@@ -22,9 +22,9 @@ Install the following:
 
 ## Python Dependencies
 
-Install Python dependencies with:
+Install Python dependencies from the repo root:
 ```bash
-pip install -r requirements.txt
+pip install -r ../requirements.txt
 ```
 
 ## Environment Variables

@@ -6,6 +6,18 @@ import numpy as np
 from api.settings import settings
 
 
+# Module-level singleton instance
+_embedder_instance = None
+
+
+def get_embedder():
+    """Get or create the singleton Embedder instance"""
+    global _embedder_instance
+    if _embedder_instance is None:
+        _embedder_instance = Embedder()
+    return _embedder_instance
+
+
 class Embedder:
     def __init__(self):
         """Initialize the embedder with the specified model"""

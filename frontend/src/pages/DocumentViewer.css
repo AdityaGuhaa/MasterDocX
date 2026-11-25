@@ -157,16 +157,23 @@ textarea {
 .mindmap-content, .graph-content {
   background-color: #f8f9fa;
   padding: 15px;
-  border-radius: 4px;
+  border-radius: 8px;
   border: 1px solid #eee;
-  overflow-x: auto;
 }
 
-.mindmap-content pre, .graph-content pre {
+.vis-container {
+  width: 100%;
+  height: 500px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
   background-color: #fff;
-  padding: 10px;
-  border-radius: 4px;
-  overflow-x: auto;
+}
+
+.loading-indicator {
+  padding: 40px;
+  text-align: center;
+  color: #666;
+  font-style: italic;
 }
 
 /* Responsive design */
@@ -190,5 +197,9 @@ textarea {
 
   .input-group input {
     min-width: 100%;
+  }
+
+  .vis-container {
+    height: 350px;
   }
 }
