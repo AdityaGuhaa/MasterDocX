@@ -34,3 +34,6 @@ node_modules/
 
 # Runtime data (uploads, metadata.json, chroma_db/)
 backend/data/
+
+# Locally chosen LLM model (start.sh)
+.llm-model

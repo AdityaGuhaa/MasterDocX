@@ -188,6 +188,10 @@ npm install
 ./start.sh
 ```
 
+On first run you'll be asked which LLM to use: a GGUF model already on your computer
+(it looks in LM Studio, Ollama and other common folders), or a download you confirm first.
+Run `./start.sh --choose-model` to change it later. See [SETUP.md](SETUP.md) for details.
+
 ---
 
 ## Configuration

@@ -20,14 +20,28 @@ brew install llama.cpp
 
 On other platforms, see https://github.com/ggml-org/llama.cpp for prebuilt binaries.
 
-`start.sh` starts `llama-server` for you. On first run it downloads Llama 3.1 8B Instruct
-(Q4_K_M, about 4.9 GB) from Hugging Face. To start it yourself instead:
+### Choosing a model
+
+`start.sh` starts `llama-server` for you, but it never downloads a model on its own.
+The first time you run it, it asks whether you already have an LLM on your computer:
+
+- **Yes**: it lists the GGUF models it finds (LM Studio, Ollama, llama.cpp and Hugging Face
+  caches, `~/models`, `~/Downloads`) so you can pick one, or you can type the path to any `.gguf` file.
+- **No**: you can choose to download Llama 3.1 8B Instruct (about 4.9 GB, recommended),
+  Llama 3.2 3B Instruct (about 2.0 GB, for machines with less memory), any other GGUF model from
+  Hugging Face, or skip the LLM for now. A download starts only after you confirm it.
+
+Your choice is saved in `.llm-model` (not committed) so you aren't asked again.
+To pick a different model later:
 ```bash
-llama-server -hf bartowski/Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M --port 8080 -c 8192
+./start.sh --choose-model
 ```
 
-To use a different model, pass a local file with `-m /path/to/model.gguf`
-(or set `LLAMA_MODEL_PATH` / `LLAMA_HF_MODEL` when using `start.sh`).
+To skip the question, set `LLAMA_MODEL_PATH=/path/to/model.gguf` (or `LLAMA_HF_MODEL=user/repo:quant`).
+To run llama.cpp yourself instead, start it before `start.sh` and it will be reused:
+```bash
+llama-server -m /path/to/model.gguf --port 8080 -c 8192
+```
 
 ### Installing espeak (for TTS)
 
@@ -116,7 +130,7 @@ You can also test the API directly:
 
 ### Common Issues
 
-1. **LLM connection errors**: Ensure `llama-server` is running on port 8080 (check `llama-server.log` when started by `start.sh`) and has finished loading the model
+1. **LLM connection errors**: Ensure `llama-server` is running on port 8080 (check `llama-server.log` when started by `start.sh`) and has finished loading the model. If you skipped choosing a model, run `./start.sh --choose-model`
 2. **TTS not working**: Install espeak or check system audio settings
 3. **PDF processing issues**: Ensure poppler-utils and Tesseract are installed (needed for OCR on scanned PDFs)
 4. **CORS errors**: Make sure both backend and frontend are running

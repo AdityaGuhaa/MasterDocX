@@ -5,11 +5,24 @@
 # Startup script for MasterDocX
 # Starts the llama.cpp server (if needed), the backend and the frontend.
 #
-# LLM settings (override with environment variables):
-#   LLAMA_MODEL_PATH  path to a local .gguf file (takes priority over LLAMA_HF_MODEL)
-#   LLAMA_HF_MODEL    Hugging Face model to download/use (default: Llama 3.1 8B Instruct, Q4_K_M)
+# On first run it asks which LLM to use: a model already on this computer, or
+# a download (only after you confirm). The choice is saved in .llm-model.
+#   ./start.sh --choose-model   pick a different model
+#
+# LLM settings (optional environment variables; these skip the question):
+#   LLAMA_MODEL_PATH  path to a local .gguf file
+#   LLAMA_HF_MODEL    Hugging Face model to download/use, e.g. user/repo:Q4_K_M
 #   LLAMA_PORT        llama-server port (default: 8080)
 #   LLAMA_CTX         context size in tokens (default: 8192)
+
+cd "$(dirname "$0")" || exit 1
+
+CHOOSE_MODEL=""
+for arg in "$@"; do
+    if [ "$arg" = "--choose-model" ]; then
+        CHOOSE_MODEL="--reconfigure"
+    fi
+done
 
 echo "Starting MasterDocX..."
 
@@ -26,7 +39,6 @@ fi
 
 LLAMA_PORT="${LLAMA_PORT:-8080}"
 LLAMA_CTX="${LLAMA_CTX:-8192}"
-LLAMA_HF_MODEL="${LLAMA_HF_MODEL:-bartowski/Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M}"
 LLAMA_PID=""
 
 # Point the backend at a non-default port unless LLM_BASE_URL is already set
@@ -41,17 +53,33 @@ elif ! command -v llama-server &> /dev/null; then
     echo "Warning: llama-server (llama.cpp) is not installed. LLM features will not work."
     echo "         Install it with: brew install llama.cpp"
 else
+    MODEL_ARGS=()
     if [ -n "$LLAMA_MODEL_PATH" ]; then
         MODEL_ARGS=(-m "$LLAMA_MODEL_PATH")
-        echo "Starting llama.cpp server with $LLAMA_MODEL_PATH..."
-    else
+    elif [ -n "$LLAMA_HF_MODEL" ]; then
         MODEL_ARGS=(-hf "$LLAMA_HF_MODEL")
-        echo "Starting llama.cpp server with $LLAMA_HF_MODEL..."
-        echo "(The model is downloaded on first run, about 4.9 GB; see llama-server.log)"
+    else
+        # Ask the user (or use their saved choice); never downloads without a yes
+        CHOICE="$(python3 scripts/choose_model.py --config .llm-model $CHOOSE_MODEL)"
+        read -r KIND VALUE <<< "$CHOICE"
+        case "$KIND" in
+            m)  MODEL_ARGS=(-m "$VALUE") ;;
+            hf) MODEL_ARGS=(-hf "$VALUE") ;;
+        esac
     fi
-    llama-server "${MODEL_ARGS[@]}" --host 127.0.0.1 --port "$LLAMA_PORT" -c "$LLAMA_CTX" \
-        > llama-server.log 2>&1 &
-    LLAMA_PID=$!
+
+    if [ ${#MODEL_ARGS[@]} -eq 0 ]; then
+        echo "No LLM selected: starting without AI features (upload still works)."
+        echo "         Run ./start.sh --choose-model to pick a model."
+    else
+        echo "Starting llama.cpp server with ${MODEL_ARGS[1]}..."
+        if [ "${MODEL_ARGS[0]}" = "-hf" ]; then
+            echo "(Downloads the model if it isn't cached yet; progress is in llama-server.log)"
+        fi
+        llama-server "${MODEL_ARGS[@]}" --host 127.0.0.1 --port "$LLAMA_PORT" -c "$LLAMA_CTX" \
+            > llama-server.log 2>&1 &
+        LLAMA_PID=$!
+    fi
 fi
 
 # Check if espeak is available for TTS
