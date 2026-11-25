@@ -16,6 +16,7 @@ import {
   FiArrowUp,
   FiAlertCircle,
   FiMaximize2,
+  FiRotateCcw,
 } from 'react-icons/fi';
 import { Network } from 'vis-network/standalone';
 import { useTheme } from '../theme';
@@ -169,8 +170,7 @@ const DocumentViewer = () => {
   const { docId } = useParams();
   const [documentInfo, setDocumentInfo] = useState(null);
   const [query, setQuery] = useState('');
-  const [askedQuestion, setAskedQuestion] = useState('');
-  const [answer, setAnswer] = useState('');
+  const [thread, setThread] = useState([]); // [{ question, answer }]; answer is null while waiting
   const [summary, setSummary] = useState('');
   const [explanationText, setExplanationText] = useState('');
   const [explanationResult, setExplanationResult] = useState('');
@@ -187,12 +187,22 @@ const DocumentViewer = () => {
   const mindmapNetworkRef = useRef(null);
   const graphNetworkRef = useRef(null);
   const audioRef = useRef(null);
+  const askInputRef = useRef(null);
+  const threadEndRef = useRef(null);
 
   const setTaskBusy = (task, value) => setBusy((current) => ({ ...current, [task]: value }));
 
   useEffect(() => {
+    setThread([]);
     fetchDocumentInfo();
   }, [docId]);
+
+  // Keep the newest question and answer in view, and the cursor ready for a follow-up
+  useEffect(() => {
+    if (activeTab !== 'query' || thread.length === 0) return;
+    threadEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    if (!busy.query) askInputRef.current?.focus({ preventScroll: true });
+  }, [thread, busy.query, activeTab]);
 
   // Render mindmap when data arrives
   useEffect(() => {
@@ -301,20 +311,40 @@ const DocumentViewer = () => {
   const handleQuery = async (e, preset) => {
     if (e) e.preventDefault();
     const question = (preset ?? query).trim();
-    if (!question) return;
-    setQuery(question);
+    if (!question || busy.query) return;
+
+    // Earlier turns go along so follow-ups like "why?" or "tell me more" make sense
+    const history = thread
+      .filter((turn) => turn.answer)
+      .flatMap((turn) => [
+        { role: 'user', content: turn.question },
+        { role: 'assistant', content: turn.answer },
+      ]);
+
+    setQuery('');
+    setThread((current) => [...current, { question, answer: null }]);
     setTaskBusy('query', true);
     setError('');
-    setAnswer('');
-    setAskedQuestion(question);
     try {
-      const response = await axios.post('/api/v1/query', { doc_id: docId, query: question });
-      setAnswer(response.data.response);
+      const response = await axios.post('/api/v1/query', { doc_id: docId, query: question, history });
+      setThread((current) =>
+        current.map((turn, i) => (i === current.length - 1 ? { ...turn, answer: response.data.response } : turn))
+      );
     } catch (err) {
+      setThread((current) => current.slice(0, -1));
+      setQuery(question); // keep the question so it can be retried
       setError('Couldn’t answer that: ' + (err.response?.data?.detail || err.message));
     } finally {
       setTaskBusy('query', false);
     }
+  };
+
+  const startNewConversation = () => {
+    if (audioRef.current) audioRef.current.pause();
+    setSpeaking(null);
+    setThread([]);
+    setQuery('');
+    askInputRef.current?.focus();
   };
 
   const handleSummarize = async () => {
@@ -525,13 +555,34 @@ const DocumentViewer = () => {
 
         {activeTab === 'query' && (
           <>
+            {thread.length > 0 && (
+              <div className="thread" aria-live="polite">
+                {thread.map((turn, i) => (
+                  <div className="turn" key={i}>
+                    <p className="bubble-question fade">{turn.question}</p>
+                    {turn.answer === null ? (
+                      <Thinking label="Looking through your document…" />
+                    ) : (
+                      <article className="card content-card fade">
+                        <RichText text={turn.answer} />
+                        <div className="card-actions">
+                          <ListenButton text={turn.answer} id={`answer-${i}`} />
+                        </div>
+                      </article>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
             <form className="ask-bar card" onSubmit={handleQuery}>
               <FiMessageCircle size={20} className="ask-icon" />
               <input
+                ref={askInputRef}
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Ask anything about this document"
+                placeholder={thread.length ? 'Ask a follow-up…' : 'Ask anything about this document'}
                 disabled={busy.query}
                 autoFocus
               />
@@ -540,7 +591,7 @@ const DocumentViewer = () => {
               </button>
             </form>
 
-            {!answer && !busy.query && (
+            {thread.length === 0 ? (
               <div className="suggestions">
                 {SUGGESTIONS.map((s) => (
                   <button key={s} type="button" className="suggestion" onClick={() => handleQuery(null, s)}>
@@ -548,26 +599,24 @@ const DocumentViewer = () => {
                   </button>
                 ))}
               </div>
+            ) : (
+              <div className="thread-footer">
+                <span className="muted small">
+                  {thread.length} question{thread.length === 1 ? '' : 's'} · follow-ups remember this conversation
+                </span>
+                <button type="button" className="btn btn-ghost" onClick={startNewConversation} disabled={busy.query}>
+                  <FiRotateCcw size={14} /> New conversation
+                </button>
+              </div>
             )}
-
-            {busy.query && <Thinking label="Looking through your document…" />}
-
-            {answer && !busy.query && (
-              <article className="card content-card fade">
-                <p className="question">{askedQuestion}</p>
-                <RichText text={answer} />
-                <div className="card-actions">
-                  <ListenButton text={answer} id="answer" />
-                </div>
-              </article>
-            )}
+            <div ref={threadEndRef} />
           </>
         )}
 
         {activeTab === 'summary' && (
           <>
             {busy.summary ? (
-              <Thinking label="Writing a summary…" />
+              <Thinking label="Writing a summary…" hint="The whole document is read, so long documents can take a few minutes." />
             ) : summary ? (
               <article className="card content-card reading">
                 <RichText text={summary} />
@@ -626,7 +675,7 @@ const DocumentViewer = () => {
         {activeTab === 'mindmap' && (
           <>
             {busy.mindmap ? (
-              <Thinking label="Mapping the main ideas…" hint="This usually takes 20–40 seconds." />
+              <Thinking label="Mapping the main ideas…" hint="The whole document is read, so long documents can take a few minutes." />
             ) : mindmap ? (
               <div className="card canvas-card">
                 <div className="canvas-toolbar">
@@ -649,7 +698,7 @@ const DocumentViewer = () => {
         {activeTab === 'graph' && (
           <>
             {busy.graph ? (
-              <Thinking label="Finding people, places and ideas…" hint="This usually takes 20–40 seconds." />
+              <Thinking label="Finding people, places and ideas…" hint="The whole document is read, so long documents can take a few minutes." />
             ) : knowledgeGraph ? (
               <div className="card canvas-card">
                 <div className="canvas-toolbar">

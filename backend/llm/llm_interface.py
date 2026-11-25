@@ -2,14 +2,23 @@
 # SPDX-License-Identifier: MIT
 
 import json
+import logging
 import re
+import time
 import httpx
 from api.settings import settings
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
-# Cap how much document text goes into whole-document prompts so they fit in
-# the context window llama-server is started with (start.sh uses -c 8192).
-MAX_DOCUMENT_CHARS = 10000
+logger = logging.getLogger(__name__)
+
+# Whole-document prompts (summary, mindmap, knowledge graph) get as much of the
+# document as fits in llama-server's context window, which start.sh sizes to the
+# machine's free memory. These leave room for the instructions and the answer.
+PROMPT_RESERVE_TOKENS = 512
+MAX_OUTPUT_TOKENS = 4096
+# Used only if llama-server can't report its context size or count tokens
+FALLBACK_DOCUMENT_CHARS = 10000
+CONTEXT_CACHE_SECONDS = 60
 
 
 class LLMInterface:
@@ -24,17 +33,74 @@ class LLMInterface:
             headers=headers,
             timeout=settings.llm_timeout,
         )
+        self._context_size: Optional[int] = None
+        self._context_checked_at = 0.0
 
-    def _generate(self, prompt: str, temperature: float, json_output: bool = False) -> str:
-        """Send a single-turn chat request to llama-server's OpenAI-compatible API.
+    def context_size(self) -> Optional[int]:
+        """Tokens available per request, as reported by llama-server (cached briefly)."""
+        if time.monotonic() - self._context_checked_at < CONTEXT_CACHE_SECONDS:
+            return self._context_size
+        try:
+            props = self.client.get("/props", timeout=5).json()
+            n_ctx = int(props["default_generation_settings"]["n_ctx"])
+            self._context_size = n_ctx if n_ctx > 0 else None
+        except (httpx.HTTPError, KeyError, TypeError, ValueError):
+            self._context_size = None
+        self._context_checked_at = time.monotonic()
+        return self._context_size
 
-        The chat endpoint applies the model's own chat template, so instruct
-        models like Llama 3.1 get correctly formatted prompts.
+    def _output_tokens(self) -> int:
+        n_ctx = self.context_size()
+        return min(MAX_OUTPUT_TOKENS, n_ctx // 4) if n_ctx else MAX_OUTPUT_TOKENS
+
+    def _count_tokens(self, text: str) -> int:
+        response = self.client.post("/tokenize", json={"content": text}, timeout=60)
+        response.raise_for_status()
+        return len(response.json()["tokens"])
+
+    def _fit_to_context(self, text: str) -> str:
+        """Trim text so the whole prompt fits in llama-server's context window."""
+        n_ctx = self.context_size()
+        if not n_ctx:
+            if len(text) > FALLBACK_DOCUMENT_CHARS:
+                return text[:FALLBACK_DOCUMENT_CHARS] + "... (truncated)"
+            return text
+
+        budget = n_ctx - PROMPT_RESERVE_TOKENS - self._output_tokens()
+        marker = "... (truncated)"
+        try:
+            trimmed = False
+            for _ in range(3):
+                tokens = self._count_tokens(text)
+                if tokens <= budget:
+                    break
+                # Shrink proportionally, with a little slack, and re-check
+                text = text[: int(len(text) * budget / tokens * 0.97)]
+                trimmed = True
+            return text + marker if trimmed else text
+        except (httpx.HTTPError, KeyError, ValueError) as e:
+            logger.warning(f"Couldn't count tokens ({e}); using a conservative estimate")
+            max_chars = max(budget, 0) * 3  # roughly 3+ characters per token
+            return text if len(text) <= max_chars else text[:max_chars] + "... (truncated)"
+
+    def _generate(
+        self,
+        prompt: str,
+        temperature: float,
+        json_output: bool = False,
+        messages: Optional[List[Dict[str, str]]] = None,
+    ) -> str:
+        """Send a chat request to llama-server's OpenAI-compatible API.
+
+        Pass a single prompt, or a full list of chat messages for multi-turn
+        conversations. The chat endpoint applies the model's own chat template,
+        so instruct models get correctly formatted prompts.
         """
         payload = {
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages or [{"role": "user", "content": prompt}],
             "temperature": temperature,
             "top_p": 0.9,
+            "max_tokens": self._output_tokens(),
         }
         if json_output:
             # llama-server turns this into a grammar, so the output is valid JSON
@@ -53,12 +119,9 @@ class LLMInterface:
 
         return response.json()["choices"][0]["message"]["content"].strip()
 
-    @staticmethod
-    def _document_text(chunks: List[Dict[str, Any]]) -> str:
+    def _document_text(self, chunks: List[Dict[str, Any]]) -> str:
         full_text = "\n\n".join([chunk["text"] for chunk in chunks])
-        if len(full_text) > MAX_DOCUMENT_CHARS:
-            full_text = full_text[:MAX_DOCUMENT_CHARS] + "... (truncated)"
-        return full_text
+        return self._fit_to_context(full_text)
 
     @staticmethod
     def _parse_json(raw: str) -> Any:
@@ -72,13 +135,24 @@ class LLMInterface:
                 return json.loads(cleaned[start:end + 1])
             raise
 
-    def generate_response(self, query: str, retrieved_chunks: List[Dict[str, Any]]) -> str:
-        """Generate response using RAG context"""
+    def generate_response(
+        self,
+        query: str,
+        retrieved_chunks: List[Dict[str, Any]],
+        history: Optional[List[Dict[str, str]]] = None,
+    ) -> str:
+        """Generate response using RAG context.
+
+        history: earlier turns of the conversation as chat messages
+        ({"role": "user" | "assistant", "content": ...}), so follow-up
+        questions like "why is that?" are understood.
+        """
         # Format context from retrieved chunks
         context = "\n\n".join([chunk["text"] for chunk in retrieved_chunks])
 
-        # Create prompt
-        prompt = f"""Use the following context to answer the question according to the document.
+        try:
+            if not history:
+                prompt = f"""Use the following context to answer the question according to the document.
 If the context doesn't contain the information needed to answer the question, say so.
 
 Context:
@@ -87,9 +161,22 @@ Context:
 Question: {query}
 
 Answer:"""
+                return self._generate(prompt, temperature=0.7)
 
-        try:
-            return self._generate(prompt, temperature=0.7)
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You answer questions about a document using the context passages provided "
+                    "with each question. If the context doesn't contain the information needed, say so. "
+                    "Use the earlier conversation to understand follow-up questions.",
+                },
+                *history,
+                {
+                    "role": "user",
+                    "content": f"Context from the document:\n{context}\n\nQuestion: {query}",
+                },
+            ]
+            return self._generate("", temperature=0.7, messages=messages)
         except Exception as e:
             return f"Error generating response: {str(e)}"
 

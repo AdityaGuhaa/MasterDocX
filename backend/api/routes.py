@@ -33,6 +33,26 @@ tts_engine = TTSEngine()
 # threadpool so one slow request doesn't freeze the whole server.
 
 
+MAX_HISTORY_MESSAGES = 8  # the last 4 question/answer pairs
+MAX_HISTORY_MESSAGE_CHARS = 2000
+
+
+def _clean_history(raw) -> list:
+    """Keep only well-formed recent chat turns, trimmed to a sensible size."""
+    if not isinstance(raw, list):
+        return []
+    cleaned = []
+    for message in raw:
+        if (
+            isinstance(message, dict)
+            and message.get("role") in ("user", "assistant")
+            and isinstance(message.get("content"), str)
+            and message["content"].strip()
+        ):
+            cleaned.append({"role": message["role"], "content": message["content"][:MAX_HISTORY_MESSAGE_CHARS]})
+    return cleaned[-MAX_HISTORY_MESSAGES:]
+
+
 def _require_document(doc_id: str) -> dict:
     metadata = metadata_store.get_document_metadata(doc_id)
     if not metadata:
@@ -90,7 +110,11 @@ def get_document_info(doc_id: str):
 
 @router.post("/query")
 def query_document(query_request: dict):
-    """Query document with RAG"""
+    """Query document with RAG.
+
+    Optional "history": earlier turns as [{"role": "user"|"assistant", "content": "..."}]
+    so follow-up questions can refer back to the conversation.
+    """
     doc_id = query_request.get("doc_id")
     query = query_request.get("query")
 
@@ -98,10 +122,16 @@ def query_document(query_request: dict):
         raise HTTPException(status_code=400, detail="doc_id and query are required")
 
     _require_document(doc_id)
+    history = _clean_history(query_request.get("history"))
 
     try:
-        retrieved_chunks = retriever.retrieve(query, doc_id, k=settings.top_k_chunks)
-        response = llm_interface.generate_response(query, retrieved_chunks)
+        # A follow-up like "what does it produce?" alone retrieves poorly, so search
+        # with the previous question too
+        previous_questions = [m["content"] for m in history if m["role"] == "user"]
+        search_query = f"{previous_questions[-1]}\n{query}" if previous_questions else query
+
+        retrieved_chunks = retriever.retrieve(search_query, doc_id, k=settings.top_k_chunks)
+        response = llm_interface.generate_response(query, retrieved_chunks, history=history)
 
         return JSONResponse(content={
             "query": query,

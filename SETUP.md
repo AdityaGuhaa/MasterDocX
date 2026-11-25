@@ -40,8 +40,22 @@ To pick a different model later:
 To skip the question, set `LLAMA_MODEL_PATH=/path/to/model.gguf` (or `LLAMA_HF_MODEL=user/repo:quant`).
 To run llama.cpp yourself instead, start it before `start.sh` and it will be reused:
 ```bash
-llama-server -m /path/to/model.gguf --port 8080 -c 8192
+llama-server -m /path/to/model.gguf --port 8080 -np 1
 ```
+
+### Context size
+
+`start.sh` sizes the context window for your machine each time it starts (see `scripts/plan_context.py`):
+it reads the free GPU memory from llama.cpp (on Apple Silicon, the unified memory macOS lets the GPU use;
+without a GPU, free RAM), keeps 25% of it free, and lets llama.cpp work out the largest context that fits next
+to the model, up to 64k tokens. It prints the result, for example:
+
+```
+Context: 65,536 tokens (capped at 65,536; 220,160 would fit). Memory: Apple M1 Pro: 14.0 GB free; keeping 3.5 GB free.
+```
+
+Set `LLAMA_CTX=16384` to use an exact size instead, or `LLAMA_CTX_MAX=131072` to raise the cap.
+When you start `llama-server` yourself without `-c`, llama.cpp sizes the context automatically too.
 
 ### Installing espeak (for TTS)
 

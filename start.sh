@@ -13,7 +13,12 @@
 #   LLAMA_MODEL_PATH  path to a local .gguf file
 #   LLAMA_HF_MODEL    Hugging Face model to download/use, e.g. user/repo:Q4_K_M
 #   LLAMA_PORT        llama-server port (default: 8080)
-#   LLAMA_CTX         context size in tokens (default: 8192)
+#
+# Context size is worked out for this machine (scripts/plan_context.py): the memory
+# left after loading the model, keeping 25% of free memory for everything else,
+# capped at LLAMA_CTX_MAX. Optional overrides:
+#   LLAMA_CTX         use exactly this context size in tokens
+#   LLAMA_CTX_MAX     upper limit for the automatic size (default: 65536)
 
 cd "$(dirname "$0")" || exit 1
 
@@ -38,7 +43,6 @@ if ! command -v npm &> /dev/null; then
 fi
 
 LLAMA_PORT="${LLAMA_PORT:-8080}"
-LLAMA_CTX="${LLAMA_CTX:-8192}"
 LLAMA_PID=""
 
 # Point the backend at a non-default port unless LLM_BASE_URL is already set
@@ -72,11 +76,19 @@ else
         echo "No LLM selected: starting without AI features (upload still works)."
         echo "         Run ./start.sh --choose-model to pick a model."
     else
-        echo "Starting llama.cpp server with ${MODEL_ARGS[1]}..."
-        if [ "${MODEL_ARGS[0]}" = "-hf" ]; then
-            echo "(Downloads the model if it isn't cached yet; progress is in llama-server.log)"
+        # Size the context to this machine's free memory (or use LLAMA_CTX if set)
+        if [ -n "$LLAMA_CTX" ]; then
+            CTX_ARGS=(-c "$LLAMA_CTX")
+            echo "Context: $LLAMA_CTX tokens (set by LLAMA_CTX)."
+        else
+            PLAN="$(python3 scripts/plan_context.py "${MODEL_ARGS[@]}")"
+            read -r PLAN_CTX PLAN_FIT_TARGET <<< "$PLAN"
+            CTX_ARGS=(-c "$PLAN_CTX" --fit-target "$PLAN_FIT_TARGET")
         fi
-        llama-server "${MODEL_ARGS[@]}" --host 127.0.0.1 --port "$LLAMA_PORT" -c "$LLAMA_CTX" \
+
+        echo "Starting llama.cpp server with ${MODEL_ARGS[1]}..."
+        # -np 1: one request at a time, so each request gets the whole context
+        llama-server "${MODEL_ARGS[@]}" --host 127.0.0.1 --port "$LLAMA_PORT" -np 1 "${CTX_ARGS[@]}" \
             > llama-server.log 2>&1 &
         LLAMA_PID=$!
     fi

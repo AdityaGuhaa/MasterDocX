@@ -17,7 +17,7 @@ so your documents never leave your machine.
 ## Features
 
 - **Upload PDF, DOCX and TXT files.** Text is extracted automatically, with OCR (Tesseract) as a fallback for scanned PDFs.
-- **Ask questions in plain language.** Answers are grounded in the most relevant passages of your document (retrieval-augmented generation).
+- **Ask questions in plain language, then follow up.** Answers are grounded in the most relevant passages of your document (retrieval-augmented generation), and follow-up questions remember the conversation.
 - **Summaries.** One click summarizes the document; the summary is cached for next time.
 - **Explain text.** Paste any passage and get it explained in simple terms.
 - **Mindmap and knowledge graph.** The document's topics and the relationships between its entities, drawn as interactive graphs.
@@ -91,6 +91,16 @@ It never downloads anything without asking.
 
 Your choice is remembered in `.llm-model`. Run `./start.sh --choose-model` to switch models.
 
+### Context size
+
+The context window (how much text the model can read at once) is sized to your model and hardware every time
+`start.sh` runs. The memory left after loading the model goes to context: llama.cpp measures the free GPU memory
+(or RAM on machines without a GPU), 25% of it is kept free for the rest of your computer, and llama.cpp's own fitting
+works out the largest context that fits. It's capped at 64k tokens (`LLAMA_CTX_MAX`) and at the model's own limit.
+
+Summaries, mindmaps and knowledge graphs then read as much of the document as fits, so on most machines whole
+documents are read. Longer documents take longer: an M1 Pro reads roughly 300 tokens per second.
+
 Any instruction-tuned GGUF model works. Bigger models give better answers but need more memory;
 a 7-8B model at Q4_K_M needs roughly 6-8 GB of RAM.
 
@@ -116,7 +126,8 @@ a 7-8B model at Q4_K_M needs roughly 6-8 GB of RAM.
 | `LLAMA_MODEL_PATH` | Use this `.gguf` file and skip the model question |
 | `LLAMA_HF_MODEL` | Use (and download if needed) this Hugging Face model, e.g. `user/repo:Q4_K_M` |
 | `LLAMA_PORT` | llama-server port (default `8080`) |
-| `LLAMA_CTX` | Context size in tokens (default `8192`) |
+| `LLAMA_CTX` | Use exactly this context size in tokens (skips the automatic sizing) |
+| `LLAMA_CTX_MAX` | Upper limit for the automatic context size (default `65536`) |
 
 ## API
 
@@ -126,7 +137,7 @@ All endpoints are under `http://127.0.0.1:8000/api/v1`. Interactive docs are at 
 |---|---|---|
 | `POST` | `/upload` | Upload and process a document (multipart `file`) |
 | `GET` | `/document/{doc_id}` | Document metadata |
-| `POST` | `/query` | Ask a question: `{"doc_id", "query"}`; returns the answer and source chunks |
+| `POST` | `/query` | Ask a question: `{"doc_id", "query", "history"?}`, where `history` is the earlier `{"role", "content"}` turns for follow-ups; returns the answer and source chunks |
 | `POST` | `/summarize` | Summarize: `{"doc_id", "force_regenerate"?}` |
 | `POST` | `/explain` | Explain text: `{"doc_id", "text"}` |
 | `POST` | `/tts` | Text to speech (WAV): `{"text"}` |
@@ -150,7 +161,8 @@ MasterDocX/
 ├── frontend/
 │   └── src/                    React app (upload page, document viewer)
 ├── scripts/
-│   └── choose_model.py         Interactive LLM picker used by start.sh
+│   ├── choose_model.py         Interactive LLM picker used by start.sh
+│   └── plan_context.py         Sizes the context window to the model and free memory
 ├── start.sh                    Starts llama-server, backend and frontend
 ├── requirements.txt            Python dependencies
 └── SETUP.md                    Detailed setup and troubleshooting
@@ -160,7 +172,7 @@ MasterDocX/
 
 - Questions are answered from one document at a time.
 - A document is identified by its file name, so uploading a different file with the same name replaces it.
-- Summaries, mindmaps and graphs use the first ~10,000 characters of long documents.
+- Summaries, mindmaps and graphs read as much of a document as fits in the context window (up to 64k tokens by default); text beyond that is left out.
 - There's no authentication. It's meant to run on your own machine, not on a public server.
 
 ## Roadmap
