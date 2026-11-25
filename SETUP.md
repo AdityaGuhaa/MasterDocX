@@ -109,7 +109,7 @@ You can also test the API directly:
 
 1. **Ollama connection errors**: Ensure Ollama is running and the model is pulled
 2. **TTS not working**: Install espeak or check system audio settings
-3. **PDF processing issues**: Ensure poppler-utils is installed for PDF processing
+3. **PDF processing issues**: Ensure poppler-utils and Tesseract are installed (needed for OCR on scanned PDFs)
 4. **CORS errors**: Make sure both backend and frontend are running
 
 ### Environment Variables
@@ -118,7 +118,7 @@ Create a `.env` file in the backend directory to override settings:
 
 ```env
 OLLAMA_BASE_URL=http://localhost:11434
-DEFAULT_OLLA_MODEL=llama3.1:8b
+DEFAULT_OLLAMA_MODEL=llama3.1:8b
 EMBEDDING_MODEL=all-MiniLM-L6-v2
 CHROMA_DB_DIR=./data/chroma_db
 ```

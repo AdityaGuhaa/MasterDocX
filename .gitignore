@@ -1,5 +1,5 @@
 
-**pycache**/
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
@@ -28,3 +28,9 @@ env/
 build/
 dist/
 *.egg-info/
+
+# Node
+node_modules/
+
+# Runtime data (uploads, metadata.json, chroma_db/)
+backend/data/

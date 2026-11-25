@@ -124,7 +124,7 @@ Response
 * sentence-transformers
 * Ollama (local LLM)
 * Tesseract OCR
-* Piper TTS / eSpeak
+* eSpeak (TTS)
 
 ### Frontend
 
@@ -210,6 +210,7 @@ backend/
   api/
   embeddings/
   ingestion/
+  ocr/
   rag/
   storage/
   llm/
